@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+
+# Configuration options
+REPO_LOC="/var/www/release" # Your main application repository
+SPAWN_DIR="stage" # Name of the folder where your environments will reside
+
+# Global variables
+BASE_DIR=$(dirname "$(readlink -f "$0")")
+MODE=$1
+NAME=$2
+
+stage-create()
+{
+    if [ -d "$BASE_DIR/$SPAWN_DIR/$NAME" ]; then
+        echo "Error: $NAME already exists as a testing environment."
+        exit 1
+    fi
+
+    echo "Creating core repository:"
+    ${BASE_DIR}/git-new-workdir "$REPO_LOC" "$BASE_DIR/$SPAWN_DIR/$NAME"
+
+    cd "$BASE_DIR/$SPAWN_DIR/$NAME"
+
+    if [ -f "$BASE_DIR/.bootstrap" ]; then
+        # Put all stuff that you need to perform to make your application useable in this file
+        . ${BASE_DIR}/.bootstrap
+    fi
+
+    echo -e "New testing environment is available @ \033[0;32m$(pwd)\033[0m"
+}
+
+stage-list()
+{
+    echo -e "Available testing environments:\n"
+
+    for D in "$BASE_DIR/$SPAWN_DIR/"*; do
+        if [ -d "$D" ]; then
+            # We're not interested in the folder if it's not a Git repository
+            if [ ! -d "$D/.git" ]; then
+                continue
+            fi
+
+            BRANCH="$(git --git-dir=${D}/.git symbolic-ref --short -q HEAD)"
+            TAG="$(git --git-dir=${D}/.git describe --exact-match --abbrev=0 2>/dev/null)"
+
+            # "git describe" will error out if the commit is not tied to an annotated tag
+            if [ "$?" -ne 0 ]; then
+                TAG="unknown"
+            fi
+
+            if [ -n "$BRANCH" ]; then
+                LABEL="$BRANCH [\033[0;31mbranch\033[0m]"
+            else
+                LABEL="$TAG [\033[0;32mtag\033[0m]"
+            fi
+
+            echo -e "$(basename ${D})\t=>\t$LABEL"
+        fi
+    done
+}
+
+stage-destroy()
+{
+    if [ ! -d "$BASE_DIR/$SPAWN_DIR/$NAME" ]; then
+        echo "Error: $NAME could not be found."
+        exit 1
+    fi
+
+    rm -rf "$BASE_DIR/$SPAWN_DIR/$NAME"
+
+    echo "Testing environment has been removed sucessfully!"
+}
+
+stage-help()
+{
+    # What's my name again?
+    SCRIPT_NAME=$(basename ${BASH_SOURCE[0]})
+
+    echo "Usage: $SCRIPT_NAME <add|help|list|remove> [name]"
+}
+
+if [ ! -d "$BASE_DIR/$SPAWN_DIR" ]; then
+    mkdir "$BASE_DIR/$SPAWN_DIR"
+fi
+
+if [ ! -x "$BASE_DIR/git-new-workdir" ]; then
+    echo "Error: git-new-workdir should be in the working directory and executable."
+    exit 1
+fi
+
+if [ "$#" -lt "2" ] && [ "$1" != "list" ]; then
+    MODE=
+fi
+
+case "$MODE" in
+"add")
+    stage-create
+    ;;
+"list")
+    stage-list
+    ;;
+"remove")
+    stage-destroy
+    ;;
+*)
+    stage-help
+    ;;
+esac
